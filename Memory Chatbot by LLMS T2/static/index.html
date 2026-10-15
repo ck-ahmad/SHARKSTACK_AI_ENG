@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Prompt Lab Chat</title>
+<style>
+:root{--bg:#eef1f4;--panel:#fff;--ink:#1b2430;--mute:#5d6b7c;--line:#d5dce4;--accent:#0f6b64;--user:#dff0ee;--err:#a3281f;--warn:#8a5a00}
+@media (prefers-color-scheme:dark){:root{--bg:#12171d;--panel:#1a2129;--ink:#e6ebf1;--mute:#93a1b2;--line:#2c3744;--accent:#4fc3b8;--user:#1f3a39;--err:#ff8c82;--warn:#f0b955}}
+*{box-sizing:border-box}
+body{margin:0;height:100vh;display:flex;background:var(--bg);color:var(--ink);font:15px/1.5 "Inter",system-ui,sans-serif}
+aside{width:310px;flex:none;background:var(--panel);border-right:1px solid var(--line);padding:18px;overflow-y:auto}
+h1{font:600 18px/1.2 Georgia,serif;margin:0 0 14px}
+label{display:block;font-weight:600;font-size:13px;margin:14px 0 4px}
+select,input,textarea,button{font:inherit;color:inherit}
+select,input[type=text],textarea{width:100%;padding:7px 9px;border:1px solid var(--line);border-radius:6px;background:var(--bg)}
+textarea{resize:vertical}
+input[type=range]{width:100%;accent-color:var(--accent)}
+.hint{font-size:12.5px;color:var(--mute);margin-top:2px}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
+.chip{font-size:12px;padding:2px 8px;border-radius:99px;border:1px solid var(--line)}
+.chip.ok{border-color:var(--accent);color:var(--accent)}.chip.bad{color:var(--err);border-color:var(--err)}
+button{cursor:pointer;border:1px solid var(--line);background:var(--panel);padding:7px 12px;border-radius:6px}
+button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+@media (prefers-color-scheme:dark){button.primary{color:#0b1613}}
+button:disabled{opacity:.5;cursor:default}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+main{flex:1;display:flex;flex-direction:column;min-width:0}
+#bar{padding:10px 20px;border-bottom:1px solid var(--line);color:var(--mute);font-size:13px;display:flex;justify-content:space-between;align-items:center}
+#log{flex:1;overflow-y:auto;padding:20px;display:flex;flex-direction:column;gap:12px}
+.m{max-width:760px;padding:10px 14px;border-radius:10px;white-space:pre-wrap;word-wrap:break-word}
+.m.user{align-self:flex-end;background:var(--user)}
+.m.assistant{align-self:flex-start;background:var(--panel);border:1px solid var(--line)}
+.m.error{align-self:flex-start;color:var(--err);border:1px solid var(--err);background:var(--panel)}
+.note{align-self:center;font-size:12.5px;color:var(--warn)}
+.empty{margin:auto;color:var(--mute);text-align:center;max-width:380px}
+form{display:flex;gap:8px;padding:14px 20px;border-top:1px solid var(--line);background:var(--panel)}
+form textarea{flex:1;resize:none;height:44px}
+@media (max-width:760px){body{flex-direction:column;height:auto;min-height:100vh}aside{width:auto;border-right:0;border-bottom:1px solid var(--line)}#log{min-height:50vh}}
+</style>
+</head>
+<body>
+<aside>
+  <h1>Prompt Lab Chat</h1>
+  <label for="provider">Provider</label>
+  <select id="provider">
+    <option value="ollama">Ollama (local)</option>
+    <option value="groq">Groq API</option>
+    <option value="gemini">Google Gemini API</option>
+  </select>
+  <div class="chips" id="chips"></div>
+  <div class="hint" id="provHint"></div>
+
+  <label for="model">Model</label>
+  <input type="text" id="model" list="models" autocomplete="off">
+  <datalist id="models"></datalist>
+
+  <label for="temp">Temperature: <span id="tv">0.7</span></label>
+  <input type="range" id="temp" min="0" max="2" step="0.1" value="0.7">
+  <div class="hint" id="th"></div>
+
+  <label for="max">Max output tokens</label>
+  <select id="max">
+    <option>128</option><option>256</option><option selected>512</option><option>1024</option><option>2048</option>
+  </select>
+  <div class="hint">Caps response length only, not the context window.</div>
+
+  <label for="preset">System prompt</label>
+  <select id="preset"></select>
+  <textarea id="system" rows="9" style="margin-top:6px"></textarea>
+
+  <div style="margin-top:16px"><button id="clear">Clear conversation</button></div>
+</aside>
+
+<main>
+  <div id="bar"><span id="info"></span></div>
+  <div id="log"></div>
+  <form id="form">
+    <textarea id="input" placeholder="Type a message. Enter to send, Shift+Enter for a new line." aria-label="Message"></textarea>
+    <button class="primary" id="send">Send</button>
+  </form>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+let messages = [], status = null, busy = false;
+
+const tempHint = t => t <= .3 ? "Focused and predictable" : t <= .7 ? "Balanced" : t <= 1.2 ? "Varied and creative" : "Can get unpredictable";
+
+function updateInfo() {
+  $("tv").textContent = $("temp").value;
+  $("th").textContent = tempHint(+$("temp").value);
+  $("info").textContent = `${$("provider").value} · ${$("model").value} · temp ${$("temp").value} · max ${$("max").value}`;
+}
+
+function renderStatus() {
+  if (!status) return;
+  const p = $("provider").value, chips = $("chips"), hint = $("provHint");
+  chips.innerHTML = ""; hint.textContent = "";
+  const chip = (t, ok) => { const s = document.createElement("span"); s.className = "chip " + (ok ? "ok" : "bad"); s.textContent = t; chips.append(s); };
+  if (p === "ollama") {
+    const o = status.ollama;
+    chip(o.running ? "Ollama running" : "Ollama not running", o.running);
+    if (!o.running) hint.textContent = "Start it with: ollama serve";
+    else if (!o.models.includes($("model").value)) { chip("model not pulled", false); hint.textContent = `Run: ollama pull ${$("model").value}`; }
+    else chip("model ready", true);
+    $("models").innerHTML = o.models.map(m => `<option value="${m}">`).join("");
+  } else {
+    const ok = status[p].configured;
+    chip(ok ? "API key set" : "API key missing", ok);
+    if (!ok) hint.textContent = `Add ${p.toUpperCase()}_API_KEY to .env and restart, or switch to Ollama.`;
+    $("models").innerHTML = "";
+  }
+}
+
+function setProvider() {
+  $("model").value = status.defaults[$("provider").value];
+  renderStatus(); updateInfo();
+  if (messages.length) addNote(`Switched to ${$("provider").value}. Earlier messages are kept as context.`);
+}
+
+function addNote(t) { const d = document.createElement("div"); d.className = "note"; d.textContent = t; $("log").append(d); scroll(); }
+function scroll() { $("log").scrollTop = $("log").scrollHeight; }
+function bubble(cls, text) { const d = document.createElement("div"); d.className = "m " + cls; d.textContent = text; $("log").append(d); scroll(); return d; }
+
+function resetLog() {
+  messages = []; $("log").innerHTML = '<div class="empty" id="empty">Pick a provider, tune the settings, and send a message. Try the same prompt at temperature 0 and 1.5.</div>';
+}
+
+async function send() {
+  const text = $("input").value.trim();
+  if (!text || busy) return;
+  $("empty")?.remove();
+  $("input").value = "";
+  messages.push({ role: "user", content: text });
+  bubble("user", text);
+  const out = bubble("assistant", "…");
+  busy = true; $("send").disabled = true;
+  let acc = "";
+  try {
+    const r = await fetch("/api/chat", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        provider: $("provider").value, model: $("model").value.trim(),
+        system_prompt: $("system").value, messages,
+        temperature: +$("temp").value, max_tokens: +$("max").value
+      })
+    });
+    if (!r.ok) throw new Error("Request rejected: " + (await r.text()).slice(0, 200));
+    const reader = r.body.getReader(), dec = new TextDecoder();
+    let buf = "";
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      let i;
+      while ((i = buf.indexOf("\n\n")) >= 0) {
+        const ev = JSON.parse(buf.slice(0, i).replace(/^data: /, "")); buf = buf.slice(i + 2);
+        if (ev.t === "token") { acc += ev.v; out.textContent = acc; scroll(); }
+        else if (ev.t === "error") { out.remove(); bubble("error", ev.v); messages.pop(); }
+        else if (ev.t === "done" && ev.truncated) addNote("Response cut off at the max token limit. Raise it to get more.");
+      }
+    }
+    if (acc) messages.push({ role: "assistant", content: acc });
+    else if (out.isConnected) out.remove();
+  } catch (e) {
+    out.remove(); bubble("error", "Network error: " + e.message); messages.pop();
+  }
+  busy = false; $("send").disabled = false; $("input").focus();
+}
+
+$("form").addEventListener("submit", e => { e.preventDefault(); send(); });
+$("input").addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } });
+$("provider").addEventListener("change", setProvider);
+["model", "temp", "max"].forEach(id => $(id).addEventListener("input", () => { updateInfo(); renderStatus(); }));
+$("preset").addEventListener("change", () => { $("system").value = status.presets[$("preset").value]; });
+$("clear").addEventListener("click", resetLog);
+
+(async () => {
+  status = await (await fetch("/api/status")).json();
+  $("preset").innerHTML = Object.keys(status.presets).map(k => `<option>${k}</option>`).join("");
+  $("system").value = status.presets["General assistant"];
+  resetLog(); setProvider();
+})();
+</script>
+</body>
+</html>
