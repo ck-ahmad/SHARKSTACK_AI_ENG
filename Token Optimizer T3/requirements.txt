@@ -1,0 +1,7 @@
+streamlit>=1.50
+pandas>=2.0
+requests>=2.31
+python-dotenv>=1.0
+tiktoken>=0.7
+# Optional (better semantic similarity; large download):
+# sentence-transformers>=2.7
