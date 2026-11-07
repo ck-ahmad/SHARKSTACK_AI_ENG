@@ -1,0 +1,142 @@
+{
+  "name": "My workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyMinute"
+            }
+          ]
+        },
+        "maxResults": 1,
+        "filters": {}
+      },
+      "type": "n8n-nodes-base.gmailTrigger",
+      "typeVersion": 1.4,
+      "position": [
+        0,
+        0
+      ],
+      "id": "1134d3d5-d861-47e2-b164-bb0037b9c68f",
+      "name": "Gmail Trigger",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "dq8XbkuBAv6L7YLR",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=You are an AI assistant automating email responses. Analyze the incoming email below and draft an appropriate reply.\n\nEMAIL DETAILS:\nFrom: {{ $json.From }}\nSubject: {{ $json.Subject }}\nSnippet: {{ $json.snippet }}\n\nINSTRUCTIONS:\n1. SENSITIVITY CHECK: Check if the email contains sensitive topics such as financial/money details, job applications or employment changes, or personal health/medical information.\n   - If SENSITIVE: Flag it clearly by starting the output with \"[FLAGGED FOR REVIEW: <Reason>]\" and draft a polite holding reply indicating a human will review it personally.\n   - If NOT SENSITIVE: Draft a clear, polite, and direct response addressing the sender's points.\n\n2. Keep the overall tone professional and concise.",
+        "messages": {
+          "messageValues": []
+        },
+        "batching": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.9,
+      "position": [
+        224,
+        0
+      ],
+      "id": "d3429de6-76a5-4d3f-ba2c-809514643bfa",
+      "name": "Basic LLM Chain"
+    },
+    {
+      "parameters": {
+        "model": "nvidia/nemotron-3.5-super-vl:free",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenRouter",
+      "typeVersion": 1,
+      "position": [
+        160,
+        208
+      ],
+      "id": "9a42ca8e-6be2-4043-8373-12def8e0b6e1",
+      "name": "OpenRouter Chat Model",
+      "credentials": {
+        "openRouterApi": {
+          "id": "qsQB763WdMjwmtIw",
+          "name": "OpenRouter account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $('Gmail Trigger').item.json.From }}",
+        "subject": "={{ $('Gmail Trigger').item.json.Subject }}",
+        "message": "={{ $json.text }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        592,
+        0
+      ],
+      "id": "71df7e9f-f2f8-43db-9e4c-2c66a8ab078b",
+      "name": "Send a message",
+      "webhookId": "b99f0b2c-0d8f-43b3-b7a7-f06e6a73484e",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "dq8XbkuBAv6L7YLR",
+          "name": "Gmail account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Gmail Trigger": {
+      "main": [
+        [
+          {
+            "node": "Basic LLM Chain",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenRouter Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Basic LLM Chain",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Basic LLM Chain": {
+      "main": [
+        [
+          {
+            "node": "Send a message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "80910762-3cd5-4074-831b-b5f6fff94766",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "40c8f7551e558ed6b197e299610d7ed358ab0b93b02a8e5cc8a04ed748f81b2b"
+  },
+  "nodeGroups": [],
+  "id": "ce5kZnmwwSZZ7bNl",
+  "tags": []
+}
